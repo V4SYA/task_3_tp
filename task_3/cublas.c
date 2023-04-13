@@ -13,11 +13,10 @@ int main() {
     double step1 = 10.0 / (n - 1);
 
     double* u = (double*)calloc(n*n, sizeof(double));
-    double* up = (double*)calloc(n*n, sizeof(double));	
-    double x1 = 10.0;
-    double x2 = 20.0;
-    double y1 = 20.0;
-    double y2 = 30.0;
+    double* up = (double*)calloc(n*n, sizeof(double));
+    
+    double x1 = 10.0, x2 = 20.0, y1 = 20.0, y2 = 30.0;
+    
     u[0] = up[0] = x1;
     u[n] = up[n] = x2;
     u[n * (n - 1) + 1] = up[n * (n - 1) + 1] = y1;
