@@ -12,9 +12,20 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
-#define n 1024
+#include <time.h>
+#define BILLION 1000000000
 
-int main() {
+int main(int argc, char** argv) {
+    
+    struct timespec start, stop;
+    clock_gettime(CLOCK_REALTIME, &start);
+    
+    int n, iter_max;
+    double tol;
+    sscanf(argv[1], "%d", &n);
+    sscanf(argv[2], "%d", &iter_max);
+    sscanf(argv[3], "%lf", &tol);
+    
     double *tmp;
     cublasHandle_t handle;
     cublasCreate(&handle);
@@ -114,8 +125,13 @@ int main() {
 }
     
     //Вывод результатов
-    printf("%d\n", iter);
+    clock_gettime(CLOCK_REALTIME, &stop);
+    double delta = (stop.tv_sec - start.tv_sec) + (double)(stop.tv_nsec - start.tv_nsec)/(double)BILLION;
+
+    printf("%d\n", itter);
     printf("%e", error);
+    printf("time %lf\n", delta);
+
     cublasDestroy(handle);
     return 0;
 }
