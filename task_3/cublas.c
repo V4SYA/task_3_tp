@@ -62,7 +62,7 @@ int main(int argc, char** argv) {
     int iter = 0;
     double error = 1.0;
     {
-    while (iter < 1000000 && error > 1e-6) {
+    while (iter < iter_max && error > tol) {
         iter++;
         if (iter % 100 == 0 || iter == 1) {
 //Создаём копии массивов A и A_new на устройстве
@@ -128,7 +128,7 @@ int main(int argc, char** argv) {
     clock_gettime(CLOCK_REALTIME, &stop);
     double delta = (stop.tv_sec - start.tv_sec) + (double)(stop.tv_nsec - start.tv_nsec)/(double)BILLION;
 
-    printf("%d\n", itter);
+    printf("%d\n", iter);
     printf("%e", error);
     printf("time %lf\n", delta);
 
