@@ -107,7 +107,7 @@ int main(int argc, char** argv) {
                 for (int i = 1; i < n - 1; i++) {
                     for (int j = 1; j < n - 1; j++) {
                         A_new[i * n + j] =
-                                0.25 * (A_new[(i + 1) * n + j] + A_new[(i - 1) * n + j] + A_new[i * n + j - 1] + A_new[i * n + j + 1]);
+                                0.25 * (A[(i + 1) * n + j] + A[(i - 1) * n + j] + A[i * n + j - 1] + A[i * n + j + 1]);
                     }
                 }
             }
@@ -129,7 +129,7 @@ int main(int argc, char** argv) {
     double delta = (stop.tv_sec - start.tv_sec) + (double)(stop.tv_nsec - start.tv_nsec)/(double)BILLION;
 
     printf("%d\n", iter);
-    printf("%e", error);
+    printf("%0.6lf\n", error);
     printf("time %lf\n", delta);
 
     cublasDestroy(handle);
