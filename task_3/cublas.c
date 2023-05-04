@@ -16,7 +16,7 @@ int main(int argc, char** argv) {
     struct timespec start, stop;
     clock_gettime(CLOCK_REALTIME, &start);
     
-    int n, iter_max;
+    int n, iter_max, elem = 15;
     double tol;
     sscanf(argv[1], "%d", &n);
     sscanf(argv[2], "%d", &iter_max);
@@ -40,21 +40,26 @@ int main(int argc, char** argv) {
 
 //Создание копии массивов A и Anew на устройстве, а также копирование значений n и step1
 #pragma acc enter data create(A[0:n*n], Anew[0:n*n]) copyin(n, step1)
-//Указываем на начало параллельной области кода
-#pragma acc kernels
-    {
-#pragma acc loop independent
-        //Инициализация граничных значений массива A и Anew,
-        //которые соответствуют граничным условиям задачи решения уравнения Пуассона
-        for (int i = 1; i < n - 1; i++) {
-			A[i] = CORNER_1 + i * step1;
-			A[i * n] = CORNER_1 + i * step1;
-			A[i * n + (n - 1)] = CORNER_2 + i * step1;
-			A[n * (n - 1) + i] = CORNER_4 + i * step1;
-		}
-    }
+
+//Инициализация граничных значений массива A и Anew,
+//которые соответствуют граничным условиям задачи решения уравнения Пуассона
+for (int i = 1; i < n - 1; i++) {
+	A[i] = CORNER_1 + i * step1;
+	A[i * n] = CORNER_1 + i * step1;
+	A[i * n + (n - 1)] = CORNER_2 + i * step1;
+	A[n * (n - 1) + i] = CORNER_4 + i * step1;
+}
 
     memcpy(Anew, A, sizeof(double) * n * n);
+
+    //for (int i = 0; i < n*n; i++) {
+    //    printf("%lf ", A[i]);
+    //    if ((i+1) % elem == 0) {
+    //        printf("\n");
+    //    }
+    //}
+
+    printf("\n");
 
     cublasStatus_t status;
     cublasHandle_t handle;
@@ -62,29 +67,26 @@ int main(int argc, char** argv) {
 
     int iter = 0;
     double error = 1.0;
-    {
-    while (iter < iter_max && error > tol) {
+    int flag = 1;
+
+    while (iter < iter_max && flag) {
         iter++;
-        if (iter % 100 == 0 || iter == 1) {
-//Создаём копии массивов A и Anew на устройстве
-#pragma acc data present(A[0:n*n], Anew[0:n*n])
-//Начало параллельной области с указанием асинхронности выполнения
-#pragma acc kernels async(1)
-            {
-//Распараллеливанием циклы по итерациям и потокам
-#pragma acc loop independent collapse(2)
-                for (int i = 1; i < n - 1; i++) {
-                    for (int j = 1; j < n - 1; j++) {
-                        Anew[i * n + j] = 0.25 * (A[(i + 1) * n + j] + 
-                                                  A[(i - 1) * n + j] + 
-                                                  A[i * n + j - 1] + 
-                                                  A[i * n + j + 1]);
-                    }
-                }
+        int id = 0;
+
+        //Создаём копии массивов A и Anew на устройстве
+        #pragma acc data present(A[0:n*n], Anew[0:n*n])
+        
+        for (int i = 1; i < n - 1; i++) {
+            for (int j = 1; j < n - 1; j++) {
+                Anew[i * n + j] = 0.25 * (A[(i + 1) * n + j] + 
+                                        A[(i - 1) * n + j] + 
+                                        A[i * n + j - 1] + 
+                                        A[i * n + j + 1]);
             }
-            int id = 0;
-//Ожидание завершения асинхронных операций
-#pragma acc wait
+        }
+        
+        if (iter % 100 == 0) {
+            printf("%d %e\n", iter, error);
 //Копируем данные с устройства на хост
 #pragma acc host_data use_device(A, Anew)
             {
@@ -98,36 +100,13 @@ int main(int argc, char** argv) {
 //Копируем данные с хоста на устройство
 #pragma acc host_data use_device(A, Anew)
             cublasDcopy(handle, n * n, Anew, 1, A, 1);
-
-        } else {
-//Создаём копии массивов A и Anew на устройстве
-#pragma acc data present(A[0:n*n], Anew[0:n*n])
-//Указываем начало параллельной области с указанием асинхронности выполнения
-#pragma acc kernels async(1)
-            {
-//Распараллеливаем циклы по итерациям и потокам
-#pragma acc loop independent collapse(2)
-                for (int i = 1; i < n - 1; i++) {
-                    for (int j = 1; j < n - 1; j++) {
-                        Anew[i * n + j] = 0.25 * (A[(i + 1) * n + j] + 
-                                                  A[(i - 1) * n + j] + 
-                                                  A[i * n + j - 1] + 
-                                                  A[i * n + j + 1]);
-                    }
-                }
-            }
+            flag = error > tol;
         }
 
         tmp = A;
         A = Anew;
         Anew = tmp;
-        
-        //Отслеживаем прогресс вычислений
-        if (iter % 100 == 0 || iter == 1)
-#pragma acc wait(1)
-            printf("%d %e\n", iter, error);
 
-    }
 }
     
     //Вывод результатов
@@ -137,6 +116,13 @@ int main(int argc, char** argv) {
     printf("%d\n", iter);
     printf("%0.6lf\n", error);
     printf("time %lf\n", delta);
+
+    //for (int i = 0; i < n*n; i++) {
+    //    printf("%lf ", Anew[i]);
+    //    if ((i+1) % elem == 0) {
+    //        printf("\n");
+    //    }
+    //}
 
     cublasDestroy(handle);
     return 0;
