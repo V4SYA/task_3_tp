@@ -71,9 +71,7 @@ for (int i = 1; i < n - 1; i++) {
 
     printf("\n");
 
-    cublasStatus_t status;
     cublasHandle_t handle;
-    status = cublasCreate(&handle);
 
     int iter = 0;
     double error = 1.0;
