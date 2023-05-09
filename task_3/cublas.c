@@ -8,130 +8,152 @@
 соседних точек и обновление значения error. Когда значение error становится меньше заданного порога,
 цикл прерывается и программа выводит результаты решения уравнения Пуассона на экран*/
 
-#include "/opt/nvidia/hpc_sdk/Linux_x86_64/22.11/math_libs/11.8/targets/x86_64-linux/include/cublas_v2.h"
+#include <cublas_v2.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
 #include <time.h>
 
-#define BILLION 1000000000
+char ERROR_WITH_ARGS[] = ">>> Not enough args\n";
+char ERROR_WITH_ARG_1[] = ">>> Incorrect first param\n";
+char ERROR_WITH_ARG_2[] = ">>> Incorrect second param\n";
+char ERROR_WITH_ARG_3[] = ">>> Incorrect third param\n";
 
 double CORNER_1 = 10;
 double CORNER_2 = 20;
 double CORNER_3 = 30;
 double CORNER_4 = 20;
 
-int main(int argc, char** argv) {
-    
-    struct timespec start, stop;
-    clock_gettime(CLOCK_REALTIME, &start);
-    
-    int n, iter_max, elem = 15;
-    double tol;
-    sscanf(argv[1], "%d", &n);
-    sscanf(argv[2], "%d", &iter_max);
-    sscanf(argv[3], "%lf", &tol);
-    
-    double *tmp;
+int main(int argc, char *argv[]) {
+    int max_num_iter, n;
+    double max_acc;
+    if (argc < 4){
+        printf(ERROR_WITH_ARGS);
+        exit(1);
+    } else{
+        n = atoi(argv[1]); // Размер сетки
+        if (n == 0){
+            printf(ERROR_WITH_ARG_1);
+            exit(1);
+        }
+        max_num_iter = atoi(argv[2]); // Количество итераций
+        if (max_num_iter == 0){
+            printf(ERROR_WITH_ARG_2);
+            exit(1);
+        }
+        max_acc = atof(argv[3]); // Точность
+        if (max_acc == 0){
+            printf(ERROR_WITH_ARG_3);
+            exit(1);
+        }
+    }
+   
+    clock_t a = clock();
 
-    const double alpha = -1;
-    double step1 = 10.0 / (n - 1);
-
-    double* A = (double*)calloc(n*n, sizeof(double));
-    double* Anew = (double*)calloc(n*n, sizeof(double));
-    
-    memset(A, 0, sizeof(double) * n * n);
-    //Заполнение угловых значений сетки
+    double* A = (double*)calloc(n * n, sizeof(double));
+    double* Anew = (double*)calloc(n * n, sizeof(double));
 
     A[0] = CORNER_1;
     A[n-1] = CORNER_2;
     A[n * n - 1] = CORNER_3;
     A[n * (n - 1)] = CORNER_4;
 
-//Создание копии массивов A и Anew на устройстве, а также копирование значений n и step1
-#pragma acc enter data create(A[0:n*n], Anew[0:n*n]) copyin(n, step1)
-
-//Инициализация граничных значений массива A и Anew,
-//которые соответствуют граничным условиям задачи решения уравнения Пуассона
-for (int i = 1; i < n - 1; i++) {
-	A[i] = CORNER_1 + i * step1;
-	A[i * n] = CORNER_1 + i * step1;
-	A[i * n + (n - 1)] = CORNER_2 + i * step1;
-	A[n * (n - 1) + i] = CORNER_4 + i * step1;
-}
-
-    memcpy(Anew, A, sizeof(double) * n * n);
-
-    //for (int i = 0; i < n*n; i++) {
-    //    printf("%lf ", A[i]);
-    //    if ((i+1) % elem == 0) {
-    //        printf("\n");
-    //    }
-    //}
-
-    printf("\n");
-
-    cublasHandle_t handle;
-
-    int iter = 0;
-    double error = 1.0;
-    int flag = 1;
-
-    while (iter < iter_max && flag) {
-        iter++;
-        int id = 0;
-
-        //Создаём копии массивов A и Anew на устройстве
-        #pragma acc data present(A[0:n*n], Anew[0:n*n])
-        
+    int num_iter = 0;
+    double error = 1 + max_acc;
+    double step = (10.0 / (n - 1));
+    
+// выделение памяти на устройстве и копирование данных из памяти хоста в память устройства
+#pragma acc enter data create(A[0:n*n], Anew[0:n*n]) copyin(n, step)
+    
+// ядро, выполняющее циклическое заполнение массива A
+#pragma acc kernels
+    {
+#pragma acc loop independent
         for (int i = 1; i < n - 1; i++) {
-            for (int j = 1; j < n - 1; j++) {
-                Anew[i * n + j] = 0.25 * (A[(i + 1) * n + j] + 
-                                        A[(i - 1) * n + j] + 
-                                        A[i * n + j - 1] + 
-                                        A[i * n + j + 1]);
-            }
+            A[i] = CORNER_1 + i * step;
+            A[i * n] = CORNER_1 + i * step;
+            A[i * n + (n - 1)] = CORNER_2 + i * step;
+            A[n * (n - 1) + i] = CORNER_4 + i * step;
         }
-        
-        if (iter % 100 == 0) {
-            printf("%d %e\n", iter, error);
-//Копируем данные с устройства на хост
+    }
+    cublasHandle_t handle;
+    cublasCreate(&handle);
+    
+    double *tmp;
+
+    while (max_num_iter > num_iter && max_acc < error) {
+        num_iter++;
+        if (num_iter % 5 == 0) {
+            
+//объявляется область данных, которые находятся на устройстве
+#pragma acc data present(A[0:n*n], Anew[0:n*n])
+            
+//async(1) указывает, что выполнение этого блока должно начаться после выполнения предыдущего блока
+#pragma acc kernels async(1)
+            {
+//директива указывает на то, что следующий цикл for может быть распараллелен, collapse(2) отвечает за то, что оба вложенных цикла могут быть распараллелены
+#pragma acc loop independent collapse(2)
+                for (int i = 1; i < n - 1; i++) {
+                    for (int j = 1; j < n - 1; j++) {
+                        A[i * n + j] = 0.25 * (Anew[(i + 1) * n + j] + Anew[(i - 1) * n + j] + Anew[i * n + j - 1] + Anew[i * n + j + 1]);
+                    }
+                }
+            }
+           
+            int max_id = 0; //хранение индекса максимального элемента массива Anew
+            const double alpha = -1;
+            
+// останавливает выполнение программы, пока не завершатся все ядра, запущенные с использованием async()
+#pragma acc wait
+            
+//директива определяет, что данные массивов находятся и на устройстве, и на хосте, и могут использоваться и изменяться на обоих уровнях
 #pragma acc host_data use_device(A, Anew)
             {
-                cublasDaxpy(handle, n * n, &alpha, Anew, 1, A, 1);
-                cublasIdamax(handle, n * n, A, 1, &id);
-
+                cublasDaxpy(handle, n * n, &alpha, A, 1, Anew, 1); // функция вычисляет значение -1 * A + Anew и сохраняет результат в Anew
+                cublasIdamax(handle, n * n, Anew, 1, &max_id); //находит индекс максимального элемента массива Anew
             }
-//Копируем значения элемента с максимальным значением на хост
-#pragma acc update self(A[id-1:1])
-            error = fabs(A[id - 1]);
-//Копируем данные с хоста на устройство
+//копирует один элемент массива Anew с индексом max_id-1 с устройства на хост
+#pragma acc update self(Anew[max_id-1:1])
+            
+            error = fabs(Anew[max_id - 1]);
 #pragma acc host_data use_device(A, Anew)
-            cublasDcopy(handle, n * n, Anew, 1, A, 1);
-            flag = error > tol;
+            cublasDcopy(handle, n * n, A, 1, Anew, 1); //функция копирует содержимое массива 
+            
+//указывает, что все ранее запланированные ядра и данные, связанные с ускорителем, должны завершить свою работу, прежде чем продолжить выполнение кода на хост-процессоре
+#pragma acc wait(1)
+            printf("Номер итерации: %d, ошибка: %0.8lf\n", num_iter, error);
+            
+
+        }
+        else {
+#pragma acc data present(A[0:n*n], Anew[0:n*n])
+#pragma acc kernels async(1)
+            {
+#pragma acc loop independent collapse(2)
+                for (int i = 1; i < n - 1; i++) {
+                    for (int j = 1; j < n - 1; j++) {
+                        A[i * n + j] = 0.25 * (Anew[(i + 1) * n + j] + 
+                        Anew[(i - 1) * n + j] + 
+                        Anew[i * n + j - 1] + 
+                        Anew[i * n + j + 1]);
+                    }
+                }
+            }
         }
 
-        tmp = A;
-        A = Anew;
-        Anew = tmp;
+        tmp = Anew;
+        Anew = A;
+        A = tmp;
+       
+    }
 
-}
-    
-    //Вывод результатов
-    clock_gettime(CLOCK_REALTIME, &stop);
-    double delta = (stop.tv_sec - start.tv_sec) + (double)(stop.tv_nsec - start.tv_nsec)/(double)BILLION;
+    printf("Result: %d, %0.6lf\n", num_iter, error);
+    clock_t b = clock();
+    double d = (double)(b-a)/CLOCKS_PER_SEC; // перевожу в секунды 
+    printf("Time: %.25f ", d);
 
-    printf("%d\n", iter);
-    printf("%0.6lf\n", error);
-    printf("time %lf\n", delta);
-
-    //for (int i = 0; i < n*n; i++) {
-    //    printf("%lf ", Anew[i]);
-    //    if ((i+1) % elem == 0) {
-    //        printf("\n");
-    //    }
-    //}
-
-    cublasDestroy(handle);
+    cublasDestroy(handle); //освобождаю ресурсы, связанные с объектом handle
+    free(A); 
+    free(Anew);
     return 0;
 }
